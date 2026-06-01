@@ -125,42 +125,57 @@ app.get('/api/suggest', async (req, res) => {
   try {
     const input = req.query.input || "";
 
-    console.log("🔥 RAW INPUT:", input);
-
     const usernames = input
       .split(',')
       .map(i => extractUsername(i))
       .filter(Boolean);
 
-    console.log("🔥 PARSED:", usernames);
-
     const seen = new Set();
     const merged = [];
 
-    for (const username of usernames) {
+    // 🔥 LEVEL 1 (initial users)
+    let level1 = [];
 
+    for (const username of usernames) {
       const users = await runActor(username);
       if (!users.length) continue;
 
-      const user = users[0];
-
-      for (const p of (user.relatedProfiles || [])) {
-
-        if (!p.username || seen.has(p.username)) continue;
-
-        seen.add(p.username);
-
-        merged.push({
-          handle: p.username,
-          name: p.fullName || p.username,
-          followers: p.followersCount || 0,
-          profileUrl: `https://instagram.com/${p.username}`,
-          profilePic:
-            p.profilePicUrl ||
-            "https://via.placeholder.com/50"
-        });
-      }
+      const related = users[0].relatedProfiles || [];
+      level1.push(...related);
     }
+
+    // 🔥 LEVEL 2 (expand suggestions)
+    let level2 = [];
+
+    for (const p of level1.slice(0, 10)) { // limit to avoid crash
+      const users = await runActor(p.username);
+      if (!users.length) continue;
+
+      const related = users[0].relatedProfiles || [];
+      level2.push(...related);
+    }
+
+    // 🔥 MERGE ALL LEVELS
+    const all = [...level1, ...level2];
+
+    for (const p of all) {
+
+      if (!p.username || seen.has(p.username)) continue;
+      seen.add(p.username);
+
+      merged.push({
+        handle: p.username,
+        name: p.fullName || p.username,
+        followers: p.followersCount || 0,
+        profileUrl: `https://instagram.com/${p.username}`,
+        profilePic:
+          p.profilePicUrl ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(p.username)}`
+      });
+    }
+
+    // 🔥 SORT (best first)
+    merged.sort((a, b) => b.followers - a.followers);
 
     res.json({ accounts: merged });
 
@@ -168,8 +183,4 @@ app.get('/api/suggest', async (req, res) => {
     console.log("❌ ERROR:", err.message);
     res.json({ accounts: [] });
   }
-});
-
-app.listen(4000, () => {
-  console.log("🚀 Backend running on http://localhost:4000");
 });
