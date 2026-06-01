@@ -28,21 +28,22 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [relevance, setRelevance] = useState('all');
 
+  // 🔥 FIXED FETCH (ONLY CHANGE)
   async function fetchSuggestions(usernames) {
     setLoading(true);
 
     try {
-      const results = await Promise.all(
-        usernames.map(u =>
-          fetch(`${API}/suggest/${u}`)
-            .then(r => r.json())
-            .then(data => data.accounts || [])
-        )
+      const encoded = encodeURIComponent(usernames.join(','));
+
+      const res = await fetch(
+        `${API}/suggest?input=${encoded}`
       );
+
+      const data = await res.json();
 
       const seen = new Set();
 
-      return results.flat().filter(a => {
+      return (data.accounts || []).filter(a => {
         if (!a.handle || seen.has(a.handle)) return false;
         seen.add(a.handle);
         return true;
@@ -57,8 +58,27 @@ export default function App() {
 
   async function handleSearch() {
     if (!handle.trim()) return;
+
     const accounts = await fetchSuggestions([handle]);
     setSuggestions(accounts);
+    setSelected([]);
+  }
+
+  async function handleExplore() {
+    if (!selected.length) return;
+
+    const usernames = selected
+      .slice(0, 8)
+      .map(a => a.handle);
+
+    const accounts = await fetchSuggestions(usernames);
+
+    setSuggestions(prev => {
+      const seen = new Set(prev.map(a => a.handle));
+      const newOnes = accounts.filter(a => !seen.has(a.handle));
+      return [...prev, ...newOnes];
+    });
+
     setSelected([]);
   }
 
@@ -86,8 +106,9 @@ export default function App() {
     );
 
     const total = sorted.length;
-    const highCut = Math.floor(total * 0.3);
-    const midCut = Math.floor(total * 0.7);
+
+    const highCut = Math.max(1, Math.floor(total * 0.3));
+    const midCut = Math.max(highCut + 1, Math.floor(total * 0.7));
 
     if (relevance === 'high') return sorted.slice(0, highCut);
     if (relevance === 'medium') return sorted.slice(highCut, midCut);
@@ -99,81 +120,83 @@ export default function App() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0f172a, #1e293b)',
+      background: 'linear-gradient(135deg, #1f1c2c, #928dab)',
       fontFamily: 'system-ui',
-      color: '#fff'
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center'
     }}>
 
       <div style={{
+        width: '100%',
         textAlign: 'center',
-        padding: 25,
-        fontSize: 26,
-        fontWeight: 700
+        padding: 20,
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: 600
       }}>
-        🚀 Creator Discovery Platform
+        Instagram Explorer
       </div>
 
       <div style={{
-        maxWidth: 1000,
-        margin: 'auto',
+        width: '100%',
+        maxWidth: 900,
         padding: 20
       }}>
 
-        {/* SEARCH */}
-        <div style={{
-          display: 'flex',
-          gap: 10,
-          marginBottom: 20
-        }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 15 }}>
           <input
             value={handle}
             onChange={e => setHandle(e.target.value)}
-            placeholder="Search username..."
+            placeholder="Enter username or URL"
             style={{
               flex: 1,
-              padding: 12,
-              borderRadius: 10,
+              padding: 10,
+              borderRadius: 8,
               border: 'none'
             }}
           />
-          <button style={btnPrimary} onClick={handleSearch}>Search</button>
+          <button onClick={handleSearch}>Search</button>
         </div>
 
-        {/* CONTROLS */}
         {suggestions.length > 0 && (
           <div style={{
             display: 'flex',
-            gap: 12,
+            gap: 10,
+            marginBottom: 15,
             alignItems: 'center',
-            marginBottom: 20
+            color: '#fff'
           }}>
             <select
               value={relevance}
               onChange={e => setRelevance(e.target.value)}
-              style={dropdown}
             >
               <option value="all">All</option>
-              <option value="high">🔥 High</option>
-              <option value="medium">⚡ Medium</option>
-              <option value="low">🌱 Low</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
             </select>
 
-            <button style={btnSecondary} onClick={selectAll}>Select All</button>
-            <button style={btnSecondary} onClick={clearAll}>Clear</button>
+            <button onClick={selectAll}>Select All</button>
+            <button onClick={clearAll}>Clear</button>
 
-            <span style={{ opacity: 0.7 }}>
-              {selected.length} selected
-            </span>
+            <button
+              onClick={handleExplore}
+              disabled={!selected.length}
+            >
+              Explore Selected →
+            </button>
+
+            <span>{selected.length} selected</span>
           </div>
         )}
 
-        {loading && <p>Loading...</p>}
+        {loading && <p style={{ color: '#fff' }}>Loading...</p>}
 
-        {/* GRID */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-          gap: 18
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+          gap: 15
         }}>
           {filteredSuggestions.map(acc => {
             const isSelected = selected.find(a => a.handle === acc.handle);
@@ -184,80 +207,46 @@ export default function App() {
                 key={acc.handle}
                 onClick={() => toggleSelect(acc)}
                 style={{
-                  padding: 16,
-                  borderRadius: 14,
-                  background: isSelected
-                    ? 'linear-gradient(135deg, #6366f1, #4f46e5)'
-                    : 'rgba(255,255,255,0.05)',
+                  padding: 12,
+                  borderRadius: 10,
+                  background: 'rgba(255,255,255,0.1)',
                   border: isSelected ? '2px solid #fff' : '1px solid #333',
+                  color: '#fff',
                   cursor: 'pointer'
                 }}
               >
 
-                {/* AVATAR */}
                 <div style={{
-                  width: 50,
-                  height: 50,
+                  width: 45,
+                  height: 45,
                   borderRadius: '50%',
                   background: bg,
                   color: fg,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: 10
+                  marginBottom: 8
                 }}>
                   {initials(acc.name)}
                 </div>
 
-                {/* NAME */}
-                <div style={{ fontWeight: 600 }}>
-                  {acc.name}
-                </div>
+                <div>{acc.name}</div>
 
-                {/* ✅ PROPER CLICKABLE LINK */}
                 <a
-                  href={`https://instagram.com/${acc.handle}`}
+                  href={acc.profileUrl}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noreferrer"
+                  style={{ color: '#aaa', fontSize: 13 }}
                   onClick={(e) => e.stopPropagation()}
-                  style={{
-                    color: '#60a5fa',
-                    fontSize: 13,
-                    textDecoration: 'underline',
-                    cursor: 'pointer'
-                  }}
                 >
                   @{acc.handle}
                 </a>
 
-                {/* FOLLOWERS */}
-                <div style={{
-                  marginTop: 8,
-                  fontSize: 18,
-                  fontWeight: 700
-                }}>
+                <div style={{ fontSize: 12 }}>
                   {acc.followers
                     ? acc.followers.toLocaleString()
-                    : '—'}
+                    : '—'} followers
                 </div>
-
-                <div style={{
-                  fontSize: 11,
-                  opacity: 0.6
-                }}>
-                  followers
-                </div>
-
-                {/* ✅ EXTRA BUTTON (SUPER CLEAR UX) */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(`https://instagram.com/${acc.handle}`, '_blank');
-                  }}
-                  style={btnMini}
-                >
-                  View Profile →
-                </button>
 
               </div>
             );
@@ -268,41 +257,3 @@ export default function App() {
     </div>
   );
 }
-
-// STYLES
-const btnPrimary = {
-  padding: '10px 16px',
-  borderRadius: 10,
-  background: '#6366f1',
-  color: '#fff',
-  border: 'none',
-  cursor: 'pointer'
-};
-
-const btnSecondary = {
-  padding: '10px 16px',
-  borderRadius: 10,
-  background: '#334155',
-  color: '#fff',
-  border: 'none',
-  cursor: 'pointer'
-};
-
-const btnMini = {
-  marginTop: 10,
-  fontSize: 11,
-  padding: '6px 10px',
-  borderRadius: 8,
-  background: '#475569',
-  color: '#fff',
-  border: 'none',
-  cursor: 'pointer'
-};
-
-const dropdown = {
-  padding: 10,
-  borderRadius: 10,
-  background: '#1e293b',
-  color: '#fff',
-  border: 'none'
-};
