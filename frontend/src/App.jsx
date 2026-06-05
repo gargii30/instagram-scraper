@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const API = 'http://localhost:4000/api';
+const API = 'const API_URL = "https://instagram-scraper-backend-fjqg.onrender.com";';
 
 const COLORS = [
   ['#ffedd5','#c2410c'],
