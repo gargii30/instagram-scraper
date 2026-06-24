@@ -184,3 +184,13 @@ app.get('/api/suggest', async (req, res) => {
     res.json({ accounts: [] });
   }
 });
+
+app.get("/", (req, res) => {
+  res.send("Instagram Scraper Backend Running");
+});
+
+const PORT = process.env.PORT || 4000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Backend running on port ${PORT}`);
+});
