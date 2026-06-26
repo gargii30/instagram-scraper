@@ -1,26 +1,40 @@
-const express = require('express');
-const cors = require('cors');
-const axios = require('axios');
-const fs = require('fs');
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const axios = require("axios");
+const fs = require("fs");
+require("dotenv").config();
 
 const app = express();
-app.use(cors());
+
+// ======================
+// MIDDLEWARE
+// ======================
+app.use(cors({
+  origin: "*"
+}));
 app.use(express.json());
 
+// ======================
+// CONFIG
+// ======================
+const PORT = process.env.PORT || 4000;
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
 
-const delay = (ms) => new Promise(res => setTimeout(res, ms));
+if (!APIFY_TOKEN) {
+  console.log("⚠️ WARNING: APIFY_TOKEN is missing in environment variables");
+}
 
-// 📁 CACHE
-const CACHE_FILE = 'cache.json';
+// ======================
+// SIMPLE CACHE (FILE BASED)
+// ======================
+const CACHE_FILE = "cache.json";
 let cache = {};
 
 if (fs.existsSync(CACHE_FILE)) {
   try {
-    cache = JSON.parse(fs.readFileSync(CACHE_FILE));
+    cache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
     console.log("✅ Cache loaded");
-  } catch {
+  } catch (err) {
     cache = {};
   }
 }
@@ -29,30 +43,28 @@ function saveCache() {
   fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
-// 🔥 USERNAME EXTRACTOR (FINAL FIX)
-function extractUsername(input) {
+// ======================
+// HELPERS
+// ======================
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+// extract username from @handle or URL
+function extractUsername(input = "") {
   try {
     input = decodeURIComponent(input).trim();
 
-    // remove @
-    if (input.startsWith('@')) {
-      return input.slice(1);
-    }
+    if (input.startsWith("@")) return input.slice(1);
 
-    // extract from URL
     const match = input.match(/instagram\.com\/([^\/\?\#]+)/i);
-    if (match && match[1]) {
-      return match[1];
-    }
+    if (match && match[1]) return match[1];
 
     return input;
-
   } catch {
     return input;
   }
 }
 
-// 🔍 CACHE
+// cache lookup
 function getCached(username) {
   for (const id in cache) {
     if (cache[id].username === username) {
@@ -63,25 +75,30 @@ function getCached(username) {
   return null;
 }
 
-// 🚀 APIFY SCRAPER
+// ======================
+// APIFY SCRAPER
+// ======================
 async function runActor(username) {
-
   const cached = getCached(username);
   if (cached) return cached;
 
   try {
-    console.log("🔥 Fetching:", username);
+    console.log("🔥 Fetching from Apify:", username);
 
     const run = await axios.post(
       `https://api.apify.com/v2/acts/apify~instagram-profile-scraper/runs?token=${APIFY_TOKEN}`,
-      { usernames: [username] }
+      {
+        usernames: [username],
+      }
     );
 
     const runId = run.data.data.id;
+    const datasetId = run.data.data.defaultDatasetId;
 
     let status = "RUNNING";
     let attempts = 0;
 
+    // wait for actor completion
     while (status === "RUNNING" && attempts < 20) {
       await delay(3000);
 
@@ -93,104 +110,128 @@ async function runActor(username) {
       attempts++;
     }
 
-    if (status !== "SUCCEEDED") return [];
+    if (status !== "SUCCEEDED") {
+      console.log("❌ Apify run failed:", status);
+      return [];
+    }
 
-    const datasetId = run.data.data.defaultDatasetId;
-
-    const data = await axios.get(
+    const result = await axios.get(
       `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_TOKEN}`
     );
 
-    const result = data.data || [];
-    const userId = result?.[0]?.id;
+    const data = result.data || [];
+    const userId = data?.[0]?.id;
 
     if (userId) {
       cache[userId] = {
         username,
-        data: result
+        data,
       };
       saveCache();
     }
 
-    return result;
-
+    return data;
   } catch (err) {
-    console.log("❌ ERROR:", err.message);
+    console.log("❌ Apify error:", err.message);
     return [];
   }
 }
 
-// 🎯 FINAL ROUTE (IMPORTANT)
-app.get('/api/suggest', async (req, res) => {
+// ======================
+// ROUTE: HEALTH CHECK
+// ======================
+app.get("/", (req, res) => {
+  res.send("🚀 Instagram Scraper Backend Running");
+});
+
+// ======================
+// MAIN API ROUTE (IMPORTANT)
+// ======================
+// FINAL ENDPOINT:
+// 👉 /api/suggest?input=username
+app.get("/api/suggest", async (req, res) => {
   try {
-    const input = req.query.input || "";
+    const input = req.query.input;
+
+    if (!input) {
+      return res.status(400).json({
+        error: "input query parameter is required",
+      });
+    }
 
     const usernames = input
-      .split(',')
-      .map(i => extractUsername(i))
+      .split(",")
+      .map(extractUsername)
       .filter(Boolean);
 
-    const seen = new Set();
-    const merged = [];
-
-    // 🔥 LEVEL 1 (initial users)
     let level1 = [];
+    let level2 = [];
+    const seen = new Set();
 
+    // ======================
+    // LEVEL 1
+    // ======================
     for (const username of usernames) {
       const users = await runActor(username);
       if (!users.length) continue;
 
-      const related = users[0].relatedProfiles || [];
+      const related = users?.[0]?.relatedProfiles || [];
       level1.push(...related);
     }
 
-    // 🔥 LEVEL 2 (expand suggestions)
-    let level2 = [];
-
-    for (const p of level1.slice(0, 10)) { // limit to avoid crash
+    // ======================
+    // LEVEL 2 (EXPANSION)
+    // ======================
+    for (const p of level1.slice(0, 10)) {
       const users = await runActor(p.username);
       if (!users.length) continue;
 
-      const related = users[0].relatedProfiles || [];
+      const related = users?.[0]?.relatedProfiles || [];
       level2.push(...related);
     }
 
-    // 🔥 MERGE ALL LEVELS
+    // ======================
+    // MERGE RESULTS
+    // ======================
     const all = [...level1, ...level2];
 
-    for (const p of all) {
+    const merged = [];
 
-      if (!p.username || seen.has(p.username)) continue;
+    for (const p of all) {
+      if (!p?.username) continue;
+      if (seen.has(p.username)) continue;
+
       seen.add(p.username);
 
       merged.push({
-        handle: p.username,
+        username: p.username,
         name: p.fullName || p.username,
         followers: p.followersCount || 0,
         profileUrl: `https://instagram.com/${p.username}`,
         profilePic:
           p.profilePicUrl ||
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(p.username)}`
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(p.username)}`,
       });
     }
 
-    // 🔥 SORT (best first)
+    // sort by followers
     merged.sort((a, b) => b.followers - a.followers);
 
-    res.json({ accounts: merged });
-
+    return res.json({
+      accounts: merged,
+    });
   } catch (err) {
-    console.log("❌ ERROR:", err.message);
-    res.json({ accounts: [] });
+    console.log("❌ Server error:", err.message);
+    return res.status(500).json({
+      error: "Internal server error",
+      accounts: [],
+    });
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("Instagram Scraper Backend Running");
-});
-
-const PORT = process.env.PORT || 4000;
-
+// ======================
+// START SERVER
+// ======================
 app.listen(PORT, () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
