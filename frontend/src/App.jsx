@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const API = 'const API_URL = "https://instagram-scraper-backend-fjqg.onrender.com";';
+   const API = 'https://instagram-scraper-backend-fjqg.onrender.com/api';
 
 const COLORS = [
   ['#ffedd5','#c2410c'],
@@ -28,33 +28,38 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [relevance, setRelevance] = useState('all');
 
-  // 🔥 FIXED FETCH (ONLY CHANGE)
-  async function fetchSuggestions(usernames) {
-    setLoading(true);
+  // 🔥 FIXED FETCH 
+async function fetchSuggestions(usernames) {
+  setLoading(true);
 
-    try {
-      const encoded = encodeURIComponent(usernames.join(','));
+  try {
+    const encoded = encodeURIComponent(usernames.join(','));
 
-      const res = await fetch(
-        `${API}/suggest?input=${encoded}`
-      );
+const res = await fetch(
+  `${API}/suggest?input=${encoded}`
+);
 
-      const data = await res.json();
-
-      const seen = new Set();
-
-      return (data.accounts || []).filter(a => {
-        if (!a.handle || seen.has(a.handle)) return false;
-        seen.add(a.handle);
-        return true;
-      });
-
-    } catch {
-      return [];
-    } finally {
-      setLoading(false);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
     }
+
+    const data = await res.json();
+
+    const seen = new Set();
+
+    return (data.accounts || []).filter(a => {
+      if (!a.handle || seen.has(a.handle)) return false;
+      seen.add(a.handle);
+      return true;
+    });
+
+  } catch (err) {
+    console.error("Fetch error:", err);
+    return [];
+  } finally {
+    setLoading(false);
   }
+}
 
   async function handleSearch() {
     if (!handle.trim()) return;
