@@ -1,13 +1,13 @@
 import { useState } from 'react';
 
-   const API = 'https://instagram-scraper-backend-fjqg.onrender.com/api';
+const API = 'https://instagram-scraper-backend-fjqg.onrender.com/api';
 
 const COLORS = [
-  ['#ffedd5','#c2410c'],
-  ['#e0f2fe','#0369a1'],
-  ['#dcfce7','#15803d'],
-  ['#fce7f3','#be185d'],
-  ['#ede9fe','#6d28d9'],
+  ['#ffedd5', '#c2410c'],
+  ['#e0f2fe', '#0369a1'],
+  ['#dcfce7', '#15803d'],
+  ['#fce7f3', '#be185d'],
+  ['#ede9fe', '#6d28d9'],
 ];
 
 const colorFor = (str) =>
@@ -29,37 +29,38 @@ export default function App() {
   const [relevance, setRelevance] = useState('all');
 
   // 🔥 FIXED FETCH 
-async function fetchSuggestions(usernames) {
-  setLoading(true);
+  async function fetchSuggestions(usernames) {
+    setLoading(true);
 
-  try {
-    const encoded = encodeURIComponent(usernames.join(','));
+    try {
+      const encoded = encodeURIComponent(usernames.join(','));
 
-const res = await fetch(
-  `${API}/suggest?input=${encoded}`
-);
+      const res = await fetch(
+        `${API}/suggest?input=${encoded}`
+      );
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      const seen = new Set();
+
+      return (data.accounts || []).filter(a => {
+        // 🔧 1. Deduplication
+        if (!a.username || seen.has(a.username)) return false;
+        seen.add(a.username);
+        return true;
+      });
+
+    } catch (err) {
+      console.error("Fetch error:", err);
+      return [];
+    } finally {
+      setLoading(false);
     }
-
-    const data = await res.json();
-
-    const seen = new Set();
-
-    return (data.accounts || []).filter(a => {
-      if (!a.handle || seen.has(a.handle)) return false;
-      seen.add(a.handle);
-      return true;
-    });
-
-  } catch (err) {
-    console.error("Fetch error:", err);
-    return [];
-  } finally {
-    setLoading(false);
   }
-}
 
   async function handleSearch() {
     if (!handle.trim()) return;
@@ -72,15 +73,16 @@ const res = await fetch(
   async function handleExplore() {
     if (!selected.length) return;
 
+    // 🔧 2. Explore
     const usernames = selected
       .slice(0, 8)
-      .map(a => a.handle);
+      .map(a => a.username);
 
     const accounts = await fetchSuggestions(usernames);
 
     setSuggestions(prev => {
-      const seen = new Set(prev.map(a => a.handle));
-      const newOnes = accounts.filter(a => !seen.has(a.handle));
+      const seen = new Set(prev.map(a => a.username));
+      const newOnes = accounts.filter(a => !seen.has(a.username));
       return [...prev, ...newOnes];
     });
 
@@ -88,9 +90,10 @@ const res = await fetch(
   }
 
   function toggleSelect(acc) {
+    // 🔧 3. toggleSelect
     setSelected(s =>
-      s.find(a => a.handle === acc.handle)
-        ? s.filter(a => a.handle !== acc.handle)
+      s.find(a => a.username === acc.username)
+        ? s.filter(a => a.username !== acc.username)
         : [...s, acc]
     );
   }
@@ -204,12 +207,14 @@ const res = await fetch(
           gap: 15
         }}>
           {filteredSuggestions.map(acc => {
-            const isSelected = selected.find(a => a.handle === acc.handle);
-            const [bg, fg] = colorFor(acc.handle);
+            const isSelected = selected.find(a => a.username === acc.username);
+            // 🔧 6. color + initials
+            const [bg, fg] = colorFor(acc.username);
 
             return (
               <div
-                key={acc.handle}
+                // 🔧 4. key
+                key={acc.username}
                 onClick={() => toggleSelect(acc)}
                 style={{
                   padding: 12,
@@ -232,7 +237,8 @@ const res = await fetch(
                   justifyContent: 'center',
                   marginBottom: 8
                 }}>
-                  {initials(acc.name)}
+                  {/* 🔧 6. color + initials */}
+                  {initials(acc.name || acc.username)}
                 </div>
 
                 <div>{acc.name}</div>
@@ -244,7 +250,8 @@ const res = await fetch(
                   style={{ color: '#aaa', fontSize: 13 }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  @{acc.handle}
+                  {/* 🔧 5. UI text */}
+                  @{acc.username}
                 </a>
 
                 <div style={{ fontSize: 12 }}>
